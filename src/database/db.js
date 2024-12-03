@@ -6,7 +6,7 @@ import bcrypt from 'bcryptjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dbFile = process.env.NODE_ENV === 'production' 
-  ? '/tmp/vehicles.db'  // Use /tmp em produção para garantir permissões de escrita
+  ? '/tmp/vehicles.db'
   : join(__dirname, '..', '..', 'vehicles.db');
 
 let db;
@@ -25,7 +25,6 @@ export async function initializeDatabase() {
       saveDatabase();
     }
 
-    // Configurar auto-save a cada 5 minutos
     if (process.env.NODE_ENV === 'production') {
       setInterval(() => {
         try {
@@ -34,7 +33,7 @@ export async function initializeDatabase() {
         } catch (error) {
           console.error('Error during database auto-save:', error);
         }
-      }, 5 * 60 * 1000); // 5 minutos
+      }, 5 * 60 * 1000);
     }
   } catch (err) {
     console.error('Error initializing database:', err);
@@ -44,18 +43,84 @@ export async function initializeDatabase() {
   }
 }
 
+async function initializeTables() {
+  db.run('DROP TABLE IF EXISTS history');
+  db.run('DROP TABLE IF EXISTS vehicles');
+  db.run('DROP TABLE IF EXISTS drivers');
+  db.run('DROP TABLE IF EXISTS users');
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS drivers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      department TEXT NOT NULL
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS vehicles (
+      id TEXT PRIMARY KEY,
+      model TEXT NOT NULL,
+      isCheckedOut BOOLEAN DEFAULT FALSE,
+      currentDriver TEXT,
+      FOREIGN KEY (currentDriver) REFERENCES drivers (id)
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      vehicleId TEXT NOT NULL,
+      driverId TEXT NOT NULL,
+      checkoutTime DATETIME DEFAULT CURRENT_TIMESTAMP,
+      returnTime DATETIME,
+      FOREIGN KEY (vehicleId) REFERENCES vehicles (id),
+      FOREIGN KEY (driverId) REFERENCES drivers (id)
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      password TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('admin', 'driver')),
+      driverId TEXT,
+      driverName TEXT,
+      FOREIGN KEY (driverId) REFERENCES drivers (id)
+    )
+  `);
+
+  // Insert initial data
+  db.run("INSERT INTO drivers (id, name, department) VALUES (?, ?, ?)", 
+    ['1', 'Luan Oliveira de Brito Nunes', 'Administração']);
+  db.run("INSERT INTO drivers (id, name, department) VALUES (?, ?, ?)", 
+    ['2', 'José Borges', 'Motorista']);
+
+  db.run("INSERT INTO vehicles (id, model, isCheckedOut) VALUES (?, ?, FALSE)", 
+    ['RSB7C87', 'NISSAN VERSA']);
+  db.run("INSERT INTO vehicles (id, model, isCheckedOut) VALUES (?, ?, FALSE)", 
+    ['QKE1B38', 'HILUX MARCELO']);
+  db.run("INSERT INTO vehicles (id, model, isCheckedOut) VALUES (?, ?, FALSE)", 
+    ['QKI7G71', 'PRESIDÊNCIA']);
+  db.run("INSERT INTO vehicles (id, model, isCheckedOut) VALUES (?, ?, FALSE)", 
+    ['QKE1B6', 'HILUX ADMINISTRAÇÃO']);
+
+  const hashedPassword = await bcrypt.hash('admin123', 10);
+  db.run("INSERT INTO users (id, username, password, role) VALUES (?, ?, ?, ?)",
+    ['admin', 'admin', hashedPassword, 'admin']);
+}
+
 export function saveDatabase() {
   try {
     const data = db.export();
     const buffer = Buffer.from(data);
     
-    // Criar diretório pai se não existir
     const dbDir = dirname(dbFile);
     if (!fs.existsSync(dbDir)) {
       fs.mkdirSync(dbDir, { recursive: true });
     }
     
-    // Salvar com backup
     const backupFile = `${dbFile}.backup`;
     if (fs.existsSync(dbFile)) {
       fs.copyFileSync(dbFile, backupFile);
@@ -63,7 +128,6 @@ export function saveDatabase() {
     
     fs.writeFileSync(dbFile, buffer);
     
-    // Remover backup após sucesso
     if (fs.existsSync(backupFile)) {
       fs.unlinkSync(backupFile);
     }
@@ -72,7 +136,6 @@ export function saveDatabase() {
   } catch (error) {
     console.error('Error saving database:', error);
     
-    // Tentar restaurar do backup em caso de erro
     const backupFile = `${dbFile}.backup`;
     if (fs.existsSync(backupFile)) {
       fs.copyFileSync(backupFile, dbFile);
@@ -83,4 +146,31 @@ export function saveDatabase() {
   }
 }
 
-// Resto do código permanece igual...
+export function query(sql, params = []) {
+  try {
+    const stmt = db.prepare(sql);
+    stmt.bind(params);
+    const result = [];
+    while (stmt.step()) {
+      result.push(stmt.get());
+    }
+    stmt.free();
+    return result;
+  } catch (error) {
+    console.error('Error executing query:', sql, error);
+    throw error;
+  }
+}
+
+export function run(sql, params = []) {
+  try {
+    return db.run(sql, params);
+  } catch (error) {
+    console.error('Error running query:', sql, error);
+    throw error;
+  }
+}
+
+export function getDb() {
+  return db;
+}
