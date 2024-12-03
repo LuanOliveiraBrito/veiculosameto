@@ -1,6 +1,6 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
-import { getDb, runQuery, execQuery, saveDatabase } from '../database/db.js';
+import { getDb, run, query, saveDatabase } from '../database/db.js';
 
 const router = express.Router();
 const JWT_SECRET = 'your-secret-key';
@@ -24,140 +24,126 @@ const authenticateToken = (req, res, next) => {
 
 router.get('/vehicles', authenticateToken, (req, res) => {
   try {
-    const result = execQuery(`
+    const vehicles = query(`
       SELECT v.*, d.name as driverName 
       FROM vehicles v 
       LEFT JOIN drivers d ON v.currentDriver = d.id
     `);
-    const vehicles = result.length > 0 ? result[0].values.map(row => ({
+    
+    res.json(vehicles.map(row => ({
       id: row[0],
       model: row[1],
       isCheckedOut: Boolean(row[2]),
       currentDriver: row[3],
       driverName: row[4]
-    })) : [];
-    res.json(vehicles);
+    })));
   } catch (error) {
     console.error('Error fetching vehicles:', error);
     res.status(500).json({ error: 'Failed to fetch vehicles' });
   }
 });
 
-router.post('/vehicles/checkout', authenticateToken, (req, res) => {
+router.post('/vehicles/checkout', authenticateToken, async (req, res) => {
   const { vehicleId, driverId } = req.body;
-  const db = getDb();
   
   try {
-    // Start transaction
-    db.exec('BEGIN TRANSACTION');
+    run('BEGIN TRANSACTION');
     
-    // Check if vehicle exists and is available
-    const vehicleResult = db.exec('SELECT isCheckedOut FROM vehicles WHERE id = ?', [vehicleId]);
-    if (!vehicleResult.length || !vehicleResult[0].values.length) {
-      db.exec('ROLLBACK');
+    const vehicle = query('SELECT isCheckedOut FROM vehicles WHERE id = ?', [vehicleId])[0];
+    if (!vehicle) {
+      run('ROLLBACK');
       return res.status(404).json({ error: 'Veículo não encontrado' });
     }
 
-    const isCheckedOut = Boolean(vehicleResult[0].values[0][0]);
-    if (isCheckedOut) {
-      db.exec('ROLLBACK');
+    if (Boolean(vehicle[0])) {
+      run('ROLLBACK');
       return res.status(400).json({ error: 'Veículo já está em uso' });
     }
 
-    // Update vehicle status
-    db.exec(`
+    run(`
       UPDATE vehicles
       SET isCheckedOut = TRUE, currentDriver = ?
       WHERE id = ?
     `, [driverId, vehicleId]);
 
-    // Create history record
-    db.exec(`
+    run(`
       INSERT INTO history (vehicleId, driverId, checkoutTime)
       VALUES (?, ?, datetime('now', 'localtime'))
     `, [vehicleId, driverId]);
 
-    // Commit transaction
-    db.exec('COMMIT');
+    run('COMMIT');
     saveDatabase();
     
     res.json({ success: true });
   } catch (error) {
-    db.exec('ROLLBACK');
+    run('ROLLBACK');
     console.error('Checkout error:', error);
     res.status(500).json({ error: 'Erro ao retirar veículo' });
   }
 });
 
-router.post('/vehicles/return', authenticateToken, (req, res) => {
+router.post('/vehicles/return', authenticateToken, async (req, res) => {
   const { vehicleId } = req.body;
-  const db = getDb();
   
   try {
-    // Start transaction
-    db.exec('BEGIN TRANSACTION');
+    run('BEGIN TRANSACTION');
     
-    // Get vehicle information
-    const vehicleResult = db.exec(`
+    const vehicleResult = query(`
       SELECT isCheckedOut, currentDriver
       FROM vehicles
       WHERE id = ?
-    `, [vehicleId]);
+    `, [vehicleId])[0];
 
-    if (!vehicleResult.length || !vehicleResult[0].values.length) {
-      db.exec('ROLLBACK');
+    if (!vehicleResult) {
+      run('ROLLBACK');
       return res.status(404).json({ error: 'Veículo não encontrado' });
     }
 
-    const isCheckedOut = Boolean(vehicleResult[0].values[0][0]);
-    const currentDriver = vehicleResult[0].values[0][1];
+    const isCheckedOut = Boolean(vehicleResult[0]);
+    const currentDriver = vehicleResult[1];
 
     if (!isCheckedOut) {
-      db.exec('ROLLBACK');
+      run('ROLLBACK');
       return res.status(400).json({ error: 'Veículo não está em uso' });
     }
 
-    // Get user information
-    const userResult = db.exec(`
+    const userResult = query(`
       SELECT driverId
       FROM users
       WHERE id = ?
-    `, [req.user.id]);
+    `, [req.user.id])[0];
 
-    if (!userResult.length || !userResult[0].values.length) {
-      db.exec('ROLLBACK');
+    if (!userResult) {
+      run('ROLLBACK');
       return res.status(403).json({ error: 'Usuário não encontrado' });
     }
 
-    const userDriverId = userResult[0].values[0][0];
+    const userDriverId = userResult[0];
     const isAdmin = req.user.role === 'admin';
 
     if (!isAdmin && userDriverId !== currentDriver) {
-      db.exec('ROLLBACK');
+      run('ROLLBACK');
       return res.status(403).json({ error: 'Apenas o motorista que retirou o veículo ou um administrador pode devolvê-lo' });
     }
 
-    // Update vehicle status
-    db.exec(`
+    run(`
       UPDATE vehicles
       SET isCheckedOut = FALSE, currentDriver = NULL
       WHERE id = ?
     `, [vehicleId]);
 
-    // Update history record
-    db.exec(`
+    run(`
       UPDATE history
       SET returnTime = datetime('now', 'localtime')
       WHERE vehicleId = ? AND driverId = ? AND returnTime IS NULL
     `, [vehicleId, currentDriver]);
 
-    // Commit transaction
-    db.exec('COMMIT');
+    run('COMMIT');
     saveDatabase();
     
     res.json({ success: true });
   } catch (error) {
-    db.exec('ROLLBACK');
+    run('ROLLBACK');
     console.error('Return error:', error);
     res.status(500).json({ error: 'Erro ao devolver veículo' });
   }
