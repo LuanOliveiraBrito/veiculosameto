@@ -175,25 +175,27 @@ export async function saveDatabase() {
   }
 }
 
-export function query(sql, params = []) {
-  try {
-    console.log('Executing query:', sql, 'with params:', params);
-    
-    const stmt = db.prepare(sql);
-    stmt.bind(params);
-    
-    const result = [];
-    while (stmt.step()) {
-      result.push(stmt.get());
+export async function query(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    try {
+      console.log('Executing query:', sql, 'with params:', params);
+      
+      const stmt = db.prepare(sql);
+      stmt.bind(params);
+      
+      const result = [];
+      while (stmt.step()) {
+        result.push(stmt.get());
+      }
+      stmt.free();
+      
+      console.log('Query result:', result);
+      resolve(result);
+    } catch (error) {
+      console.error('Error executing query:', sql, 'Error:', error);
+      reject(error);
     }
-    stmt.free();
-    
-    console.log('Query result:', result);
-    return result;
-  } catch (error) {
-    console.error('Error executing query:', sql, 'Error:', error);
-    throw error;
-  }
+  });
 }
 
 export function run(sql, params = []) {
