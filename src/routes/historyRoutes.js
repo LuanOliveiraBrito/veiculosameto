@@ -3,9 +3,9 @@ import { query } from '../database/db.js';
 
 const router = express.Router();
 
-router.get('/history', (req, res) => {
+router.get('/history', async (req, res) => {
   try {
-    const result = query(`
+    const result = await query(`
       SELECT h.id, h.vehicleId, h.driverId, h.checkoutTime, h.returnTime,
              v.model as vehicleModel, d.name as driverName, d.department as driverDepartment
       FROM history h
