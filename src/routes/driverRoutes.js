@@ -3,9 +3,9 @@ import { query } from '../database/db.js';
 
 const router = express.Router();
 
-router.get('/drivers', (req, res) => {
+router.get('/drivers', async (req, res) => {
   try {
-    const result = query('SELECT * FROM drivers');
+    const result = await query('SELECT * FROM drivers');
     const drivers = result.map(row => ({
       id: row[0],
       name: row[1],
