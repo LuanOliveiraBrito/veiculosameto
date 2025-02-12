@@ -5,6 +5,7 @@ import { getDb, run, query, saveDatabase } from '../database/db.js';
 const router = express.Router();
 const JWT_SECRET = 'your-secret-key';
 
+// Middleware para autenticação
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -22,14 +23,15 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-router.get('/vehicles', authenticateToken, (req, res) => {
+// Rota para buscar veículos
+router.get('/vehicles', authenticateToken, async (req, res) => {
   try {
-    const vehicles = query(`
+    const vehicles = await query(`
       SELECT v.*, d.name as driverName 
       FROM vehicles v 
       LEFT JOIN drivers d ON v.currentDriver = d.id
     `);
-    
+
     res.json(vehicles.map(row => ({
       id: row[0],
       model: row[1],
@@ -43,107 +45,115 @@ router.get('/vehicles', authenticateToken, (req, res) => {
   }
 });
 
+// Rota para fazer checkout de veículo
 router.post('/vehicles/checkout', authenticateToken, async (req, res) => {
   const { vehicleId, driverId } = req.body;
   
   try {
-    run('BEGIN TRANSACTION');
-    
-    const vehicle = query('SELECT isCheckedOut FROM vehicles WHERE id = ?', [vehicleId])[0];
+    await run('BEGIN TRANSACTION'); // Agora com await
+
+    const vehicles = await query('SELECT isCheckedOut FROM vehicles WHERE id = ?', [vehicleId]);
+    const vehicle = vehicles[0]; // Correção do acesso ao primeiro elemento
+
     if (!vehicle) {
-      run('ROLLBACK');
+      await run('ROLLBACK'); // Agora com await
       return res.status(404).json({ error: 'Veículo não encontrado' });
     }
 
     if (Boolean(vehicle[0])) {
-      run('ROLLBACK');
+      await run('ROLLBACK'); // Agora com await
       return res.status(400).json({ error: 'Veículo já está em uso' });
     }
 
-    run(`
+    await run(`
       UPDATE vehicles
       SET isCheckedOut = TRUE, currentDriver = ?
       WHERE id = ?
     `, [driverId, vehicleId]);
 
-    run(`
+    await run(`
       INSERT INTO history (vehicleId, driverId, checkoutTime)
       VALUES (?, ?, datetime('now', 'localtime'))
     `, [vehicleId, driverId]);
 
-    run('COMMIT');
+    await run('COMMIT'); // Agora com await
     saveDatabase();
-    
+
     res.json({ success: true });
   } catch (error) {
-    run('ROLLBACK');
+    await run('ROLLBACK'); // Agora com await
     console.error('Checkout error:', error);
     res.status(500).json({ error: 'Erro ao retirar veículo' });
   }
 });
 
+// Rota para devolver veículo
 router.post('/vehicles/return', authenticateToken, async (req, res) => {
   const { vehicleId } = req.body;
-  
+
   try {
-    run('BEGIN TRANSACTION');
-    
-    const vehicleResult = query(`
+    await run('BEGIN TRANSACTION'); // Agora com await
+
+    const vehicleResult = await query(`
       SELECT isCheckedOut, currentDriver
       FROM vehicles
       WHERE id = ?
-    `, [vehicleId])[0];
+    `, [vehicleId]);
 
-    if (!vehicleResult) {
-      run('ROLLBACK');
+    const vehicle = vehicleResult[0]; // Correção do acesso ao primeiro elemento
+
+    if (!vehicle) {
+      await run('ROLLBACK'); // Agora com await
       return res.status(404).json({ error: 'Veículo não encontrado' });
     }
 
-    const isCheckedOut = Boolean(vehicleResult[0]);
-    const currentDriver = vehicleResult[1];
+    const isCheckedOut = Boolean(vehicle[0]);
+    const currentDriver = vehicle[1];
 
     if (!isCheckedOut) {
-      run('ROLLBACK');
+      await run('ROLLBACK'); // Agora com await
       return res.status(400).json({ error: 'Veículo não está em uso' });
     }
 
-    const userResult = query(`
+    const userResult = await query(`
       SELECT driverId
       FROM users
       WHERE id = ?
-    `, [req.user.id])[0];
+    `, [req.user.id]);
 
-    if (!userResult) {
-      run('ROLLBACK');
+    const user = userResult[0]; // Correção do acesso ao primeiro elemento
+
+    if (!user) {
+      await run('ROLLBACK'); // Agora com await
       return res.status(403).json({ error: 'Usuário não encontrado' });
     }
 
-    const userDriverId = userResult[0];
+    const userDriverId = user[0];
     const isAdmin = req.user.role === 'admin';
 
     if (!isAdmin && userDriverId !== currentDriver) {
-      run('ROLLBACK');
+      await run('ROLLBACK'); // Agora com await
       return res.status(403).json({ error: 'Apenas o motorista que retirou o veículo ou um administrador pode devolvê-lo' });
     }
 
-    run(`
+    await run(`
       UPDATE vehicles
       SET isCheckedOut = FALSE, currentDriver = NULL
       WHERE id = ?
     `, [vehicleId]);
 
-    run(`
+    await run(`
       UPDATE history
       SET returnTime = datetime('now', 'localtime')
       WHERE vehicleId = ? AND driverId = ? AND returnTime IS NULL
     `, [vehicleId, currentDriver]);
 
-    run('COMMIT');
+    await run('COMMIT'); // Agora com await
     saveDatabase();
-    
+
     res.json({ success: true });
   } catch (error) {
-    run('ROLLBACK');
+    await run('ROLLBACK'); // Agora com await
     console.error('Return error:', error);
     res.status(500).json({ error: 'Erro ao devolver veículo' });
   }
