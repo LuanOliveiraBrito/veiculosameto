@@ -10,7 +10,7 @@ router.post('/auth/login', async (req, res) => {
   const { username, password } = req.body;
   
   try {
-    const result = query('SELECT * FROM users WHERE username = ?', [username]);
+    const result = await query('SELECT * FROM users WHERE username = ?', [username]);
     if (!result.length) {
       return res.status(401).json({ error: 'Usuário não encontrado' });
     }
@@ -60,14 +60,14 @@ router.post('/auth/users', async (req, res) => {
     let driverId = null;
 
     if (role === 'driver' && driverName) {
-      driverId = Date.now().toString() + '-driver';
-      run(`
+      driverId = `${Date.now()}-driver`;
+      await run(`
         INSERT INTO drivers (id, name, department)
         VALUES (?, ?, ?)
       `, [driverId, driverName, 'Motorista']);
     }
 
-    run(`
+    await run(`
       INSERT INTO users (id, username, password, role, driverId, driverName)
       VALUES (?, ?, ?, ?, ?, ?)
     `, [userId, username, hashedPassword, role, driverId, driverName]);
@@ -81,9 +81,9 @@ router.post('/auth/users', async (req, res) => {
   }
 });
 
-router.get('/auth/users', (req, res) => {
+router.get('/auth/users', async (req, res) => {
   try {
-    const result = query('SELECT id, username, role, driverId, driverName FROM users');
+    const result = await query('SELECT id, username, role, driverId, driverName FROM users');
     const users = result.map(row => ({
       id: row[0],
       username: row[1],
@@ -98,15 +98,18 @@ router.get('/auth/users', (req, res) => {
   }
 });
 
-router.delete('/auth/users/:id', (req, res) => {
+router.delete('/auth/users/:id', async (req, res) => {
   const { id } = req.params;
   
   try {
-    const user = query('SELECT driverId FROM users WHERE id = ?', [id])[0];
+    const userResult = await query('SELECT driverId FROM users WHERE id = ?', [id]);
+    const user = userResult[0];
+
     if (user && user[0]) {
-      run('DELETE FROM drivers WHERE id = ?', [user[0]]);
+      await run('DELETE FROM drivers WHERE id = ?', [user[0]]);
     }
-    run('DELETE FROM users WHERE id = ?', [id]);
+    await run('DELETE FROM users WHERE id = ?', [id]);
+
     saveDatabase();
     res.json({ success: true });
   } catch (error) {
