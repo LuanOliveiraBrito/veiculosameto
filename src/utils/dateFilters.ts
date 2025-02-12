@@ -12,10 +12,6 @@ export const filterHistoryByDays = (history: VehicleHistory[], days: number) => 
 
   const startDate = subDays(referenceDate, days);
 
-  console.log('--- Filtro de Datas ---');
-  console.log('referenceDate (now):', referenceDate);
-  console.log('startDate:', startDate);
-
   return history.filter((record) => {
     const checkoutDate = parse(record.checkoutTime, 'yyyy-MM-dd HH:mm:ss', new Date());
     console.log(`Registro ${record.id} - checkoutTime: ${record.checkoutTime}`);
