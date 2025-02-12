@@ -19,18 +19,11 @@ export async function initializeDatabase() {
   try {
     console.log(`Initializing database at ${dbFile}`);
     
-    if (fs.existsSync(dbFile)) {
-      console.log('Loading existing database file');
-      const filebuffer = fs.readFileSync(dbFile);
-      db = new SQL.Database(filebuffer);
-      console.log('Database loaded successfully');
-    } else {
-      console.log('Creating new database');
-      db = new SQL.Database();
-      await initializeTables();
-      await saveDatabase();
-      console.log('New database created and initialized');
-    }
+    console.log('Creating new database');
+    db = new SQL.Database();
+    await initializeTables();
+    await saveDatabase();
+    console.log('New database created and initialized');
 
     // Clear any existing save interval
     if (saveInterval) {
@@ -112,14 +105,18 @@ async function initializeTables() {
       ['2', 'José Borges', 'Motorista']);
 
     run("INSERT INTO vehicles (id, model, isCheckedOut) VALUES (?, ?, FALSE)", 
-      ['RSB7C87', 'NISSAN VERSA']);
+      ['QKE1B69', 'HILUX FISCALIZAÇÃO']);
     run("INSERT INTO vehicles (id, model, isCheckedOut) VALUES (?, ?, FALSE)", 
-      ['QKE1B38', 'HILUX MARCELO']);
+      ['QKE1B38', 'HILUX GABINETE']);
     run("INSERT INTO vehicles (id, model, isCheckedOut) VALUES (?, ?, FALSE)", 
       ['QKI7G71', 'PRESIDÊNCIA']);
     run("INSERT INTO vehicles (id, model, isCheckedOut) VALUES (?, ?, FALSE)", 
-      ['QKE1B6', 'HILUX ADMINISTRAÇÃO']);
-
+      ['RMB2A97', 'ONIX GEOLOGIA']);
+    run("INSERT INTO vehicles (id, model, isCheckedOut) VALUES (?, ?, FALSE)", 
+      ['RIM7A54', 'COROLLA VICE']);
+	run("INSERT INTO vehicles (id, model, isCheckedOut) VALUES (?, ?, FALSE)", 
+      ['RIM7G54', 'COROLLA ADM']);
+	  
     const hashedPassword = await bcrypt.hash('admin123', 10);
     run("INSERT INTO users (id, username, password, role) VALUES (?, ?, ?, ?)",
       ['admin', 'admin', hashedPassword, 'admin']);
@@ -137,6 +134,9 @@ export async function saveDatabase() {
   try {
     const data = db.export();
     const buffer = Buffer.from(data);
+    if (!fs.existsSync('/tmp')) {
+      fs.mkdirSync('/tmp', { recursive: true });
+    }
     
     const dbDir = dirname(dbFile);
     if (!fs.existsSync(dbDir)) {
